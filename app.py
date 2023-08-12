@@ -39,6 +39,10 @@ def validate_create_table_data(data):
 
   return True, ""
 
+class Home(Resource):
+  def get(self):
+    return {'message': 'Welcome to LinkDB.'}
+
 class CreateKeyspace(Resource):
   def post(self):
     api_key = request.headers.get('API-Key')
@@ -122,6 +126,40 @@ class QueryData(Resource):
     return {'status': 'success', 'data': [row._asdict() for row in rows]}
 
 
+class DeleteData(Resource):
+    def delete(self, keyspace_name, table_name):
+        api_key = request.headers.get('API-Key')
+        if not authenticate(api_key):
+            return {'message': 'Unauthorized'}, 401
+
+        data = request.get_json()
+        if "id" not in data:
+            return {'message': 'ID is required for deletion.'}, 400
+
+        delete_data_query = f"DELETE FROM {keyspace_name}.{table_name} WHERE id={data['id']}"
+        session.execute(delete_data_query)
+        return {'message': 'Data deleted successfully.'}
+
+
+class UpdateData(Resource):
+    def put(self, keyspace_name, table_name):
+        api_key = request.headers.get('API-Key')
+        if not authenticate(api_key):
+            return {'message': 'Unauthorized'}, 401
+
+        data = request.get_json()
+        if "id" not in data:
+            return {'message': 'ID is required for update.'}, 400
+
+        set_clause = ", ".join([f"{k}='{v}'" if isinstance(
+            v, str) else f"{k}={v}" for k, v in data.items() if k != "id"])
+
+        update_data_query = f"UPDATE {keyspace_name}.{table_name} SET {set_clause} WHERE id={data['id']}"
+        session.execute(update_data_query)
+        return {'message': 'Data updated successfully.'}
+
+
+api.add_resource(Home, '/')
 api.add_resource(CreateTable, '/create_table/<string:keyspace_name>')
 api.add_resource(CreateKeyspace, '/create_keyspace')
 api.add_resource(ListTables, '/list_tables/<string:keyspace_name>')
@@ -129,6 +167,10 @@ api.add_resource(
   InsertData, '/insert_data/<string:keyspace_name>/<string:table_name>')
 api.add_resource(
   QueryData, '/query_data/<string:keyspace_name>/<string:table_name>')
+api.add_resource(
+    DeleteData, '/delete_data/<string:keyspace_name>/<string:table_name>')
+api.add_resource(
+    UpdateData, '/update_data/<string:keyspace_name>/<string:table_name>')
 
 if __name__ == '__main__':
   app.run()
