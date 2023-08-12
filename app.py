@@ -1,5 +1,3 @@
-import os
-import logging
 from flask import Flask, request, jsonify
 from flask_restful import Api, Resource
 from cassandra.cluster import Cluster
@@ -9,10 +7,6 @@ from flask_limiter.util import get_remote_address
 
 app = Flask(__name__)
 api = Api(app)
-
-# Set up logging
-logging.basicConfig(level=logging.DEBUG)
-logger = logging.getLogger(__name__)
 
 # Replace with your Scylla/Cassandra credentials if needed.
 auth_provider = PlainTextAuthProvider(
@@ -135,11 +129,6 @@ api.add_resource(
   InsertData, '/insert_data/<string:keyspace_name>/<string:table_name>')
 api.add_resource(
   QueryData, '/query_data/<string:keyspace_name>/<string:table_name>')
-
-@app.errorhandler(Exception)
-def handle_exception(e):
-  logger.exception("Unhandled Exception: %s", str(e))
-  return {'message': 'Internal server error'}, 500
 
 if __name__ == '__main__':
   app.run()
