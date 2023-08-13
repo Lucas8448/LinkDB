@@ -1,22 +1,28 @@
 import requests
 
 BASE_URL = "http://localhost:5000"
-API_KEY = "API_KEY_1234"
 
 headers = {
-    "API-Key": API_KEY,
     "Content-Type": "application/json"
 }
 
-# Test Create Keyspace
+
+def generate_api_key():
+    response = requests.post(f"{BASE_URL}/generate_api_key")
+    if response.status_code == 200:
+        api_key = response.json().get('api_key')
+        print(f"Generated API Key: {api_key}")
+        headers["API-Key"] = api_key
+        return api_key
+    else:
+        print("Failed to generate API key:", response.json())
+        return None
 
 
 def test_create_keyspace():
-    response = requests.post(f"{BASE_URL}/create_keyspace",
-                             json={"keyspace_name": "testkeyspace"}, headers=headers)
+    response = requests.post(
+        f"{BASE_URL}/create_keyspace", json={"keyspace_name": "testkeyspace"}, headers=headers)
     print("Create Keyspace:", response.json())
-
-# Test Create Table
 
 
 def test_create_table():
@@ -32,15 +38,10 @@ def test_create_table():
     print("Create Table:", response.json())
 
 
-# Test List Tables
-
-
 def test_list_tables():
     response = requests.get(
         f"{BASE_URL}/list_tables/testkeyspace", headers=headers)
     print("List Tables:", response.json())
-
-# Test Insert Data
 
 
 def test_insert_data():
@@ -52,8 +53,6 @@ def test_insert_data():
         f"{BASE_URL}/insert_data/testkeyspace/testtable", json=data, headers=headers)
     print("Insert Data:", response.json())
 
-# Test Query Data
-
 
 def test_query_data():
     response = requests.get(
@@ -61,12 +60,34 @@ def test_query_data():
     print("Query Data:", response.json())
 
 
+def test_update_data():
+    data = {
+        "id": 1,
+        "name": "Lucas Updated"
+    }
+    response = requests.put(
+        f"{BASE_URL}/update_data/testkeyspace/testtable", json=data, headers=headers)
+    print("Update Data:", response.json())
+
+
+def test_delete_data():
+    data = {
+        "id": 1
+    }
+    response = requests.delete(
+        f"{BASE_URL}/delete_data/testkeyspace/testtable", json=data, headers=headers)
+    print("Delete Data:", response.json())
+
+
 def main():
-    test_create_keyspace()
-    test_create_table()
-    test_list_tables()
-    test_insert_data()
-    test_query_data()
+    if generate_api_key():
+        test_create_keyspace()
+        test_create_table()
+        test_list_tables()
+        test_insert_data()
+        test_query_data()
+        test_update_data()
+        test_delete_data()
 
 
 if __name__ == "__main__":

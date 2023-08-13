@@ -4,32 +4,52 @@ from cassandra.cluster import Cluster
 from cassandra.auth import PlainTextAuthProvider
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
+from flask_cors import CORS
 import uuid
+
 
 def generate_api_key():
     return str(uuid.uuid4())
 
+
 app = Flask(__name__)
+CORS(app, resources={r"/*": {"origins": "http://localhost:5500"}})
 api = Api(app)
 
-# Replace with your Scylla/Cassandra credentials if needed.
+# Connection details
+SCYLLA_HOST = 'localhost'
+SCYLLA_PORT = 9042
+
 auth_provider = PlainTextAuthProvider(
-  username='cassandra', password='cassandra')
-cluster = Cluster(['localhost'], port=9042, auth_provider=auth_provider)
+    username='cassandra', password='cassandra')
+cluster = Cluster([SCYLLA_HOST], port=SCYLLA_PORT, auth_provider=auth_provider)
 session = cluster.connect()
+
+KEYSPACE_FOR_API_KEYS = "api_keys"
+session.execute(
+    f"CREATE KEYSPACE IF NOT EXISTS {KEYSPACE_FOR_API_KEYS} WITH replication = {{'class':'SimpleStrategy', 'replication_factor':3}}")
+session.set_keyspace(KEYSPACE_FOR_API_KEYS)
+CREATE_API_KEYS_TABLE_QUERY = """
+CREATE TABLE IF NOT EXISTS api_keys (
+    key TEXT PRIMARY KEY
+)
+"""
+session.execute(CREATE_API_KEYS_TABLE_QUERY)
+
 
 
 def authenticate(api_key):
-    query = "SELECT key FROM api_keys WHERE key = ?"
+    query = f"SELECT key FROM {KEYSPACE_FOR_API_KEYS}.api_keys WHERE key = ?"
     prepared_statement = session.prepare(query)
     bound_statement = prepared_statement.bind((api_key,))
     rows = session.execute(bound_statement)
     return bool(rows.one())
 
+
 class GenerateAPIKey(Resource):
     def post(self):
         new_key = generate_api_key()
-        insert_query = f"INSERT INTO api_keys (key) VALUES ('{new_key}')"
+        insert_query = f"INSERT INTO {KEYSPACE_FOR_API_KEYS}.api_keys (key) VALUES ('{new_key}')"
         session.execute(insert_query)
         return {'api_key': new_key}
 
@@ -62,18 +82,16 @@ class CreateKeyspace(Resource):
 
     data = request.get_json()
     keyspace_name = data['keyspace_name']
-    replication_factor = data.get('replication_factor', 1)
+    replication_factor = 1
 
-    create_keyspace_query = """
-    CREATE KEYSPACE IF NOT EXISTS ? 
-    WITH replication = {'class':'SimpleStrategy', 'replication_factor':?}
-    """
-    prepared_statement = session.prepare(create_keyspace_query)
-    bound_statement = prepared_statement.bind(
-        (keyspace_name, replication_factor))
-    session.execute(bound_statement)
+    create_keyspace_query = f"""
+      CREATE KEYSPACE IF NOT EXISTS {keyspace_name} 
+      WITH replication = {{'class':'SimpleStrategy', 'replication_factor':{replication_factor}}}
+      """
+
+
+    session.execute(create_keyspace_query)
     return {'message': f'Keyspace {keyspace_name} created successfully.'}
-
 
 class CreateTable(Resource):
   def post(self, keyspace_name):
@@ -128,12 +146,11 @@ class QueryData(Resource):
     if not authenticate(api_key):
       return {'status': 'error', 'message': 'Unauthorized'}, 401
 
-    page = int(request.args.get('page', 1))
     limit = int(request.args.get('limit', 50))
-    offset = (page - 1) * limit
 
-    select_data_query = f"SELECT * FROM {keyspace_name}.{table_name} LIMIT {limit} OFFSET {offset}"
+    select_data_query = f"SELECT * FROM {keyspace_name}.{table_name} LIMIT {limit}"
     rows = session.execute(select_data_query)
+
 
     # Convert rows to dictionaries using _asdict()
     return {'status': 'success', 'data': [row._asdict() for row in rows]}
