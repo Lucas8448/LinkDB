@@ -20,8 +20,10 @@ session = cluster.connect()
 
 
 def authenticate(api_key):
-    query = f"SELECT key FROM api_keys WHERE key = '{api_key}'"
-    rows = session.execute(query)
+    query = "SELECT key FROM api_keys WHERE key = ?"
+    prepared_statement = session.prepare(query)
+    bound_statement = prepared_statement.bind((api_key,))
+    rows = session.execute(bound_statement)
     return bool(rows.one())
 
 class GenerateAPIKey(Resource):
@@ -51,6 +53,7 @@ class Home(Resource):
   def get(self):
     return {'message': 'Welcome to LinkDB.'}
 
+
 class CreateKeyspace(Resource):
   def post(self):
     api_key = request.headers.get('API-Key')
@@ -59,14 +62,16 @@ class CreateKeyspace(Resource):
 
     data = request.get_json()
     keyspace_name = data['keyspace_name']
-    # default replication factor is 1
     replication_factor = data.get('replication_factor', 1)
 
-    create_keyspace_query = f"""
-    CREATE KEYSPACE IF NOT EXISTS {keyspace_name} 
-    WITH replication = {{'class':'SimpleStrategy', 'replication_factor':{replication_factor}}}
+    create_keyspace_query = """
+    CREATE KEYSPACE IF NOT EXISTS ? 
+    WITH replication = {'class':'SimpleStrategy', 'replication_factor':?}
     """
-    session.execute(create_keyspace_query)
+    prepared_statement = session.prepare(create_keyspace_query)
+    bound_statement = prepared_statement.bind(
+        (keyspace_name, replication_factor))
+    session.execute(bound_statement)
     return {'message': f'Keyspace {keyspace_name} created successfully.'}
 
 
