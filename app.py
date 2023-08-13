@@ -4,6 +4,10 @@ from cassandra.cluster import Cluster
 from cassandra.auth import PlainTextAuthProvider
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
+import uuid
+
+def generate_api_key():
+    return str(uuid.uuid4())
 
 app = Flask(__name__)
 api = Api(app)
@@ -14,14 +18,18 @@ auth_provider = PlainTextAuthProvider(
 cluster = Cluster(['localhost'], port=9042, auth_provider=auth_provider)
 session = cluster.connect()
 
-# In a real-world scenario, store and manage these securely.
-API_KEYS = ["API_KEY_1234"]
 
 def authenticate(api_key):
-  if api_key not in API_KEYS:
-    return False
-  return True
+    query = f"SELECT key FROM api_keys WHERE key = '{api_key}'"
+    rows = session.execute(query)
+    return bool(rows.one())
 
+class GenerateAPIKey(Resource):
+    def post(self):
+        new_key = generate_api_key()
+        insert_query = f"INSERT INTO api_keys (key) VALUES ('{new_key}')"
+        session.execute(insert_query)
+        return {'api_key': new_key}
 
 limiter = Limiter(
   app,
@@ -160,6 +168,7 @@ class UpdateData(Resource):
 
 
 api.add_resource(Home, '/')
+api.add_resource(GenerateAPIKey, '/generate_api_key')
 api.add_resource(CreateTable, '/create_table/<string:keyspace_name>')
 api.add_resource(CreateKeyspace, '/create_keyspace')
 api.add_resource(ListTables, '/list_tables/<string:keyspace_name>')
