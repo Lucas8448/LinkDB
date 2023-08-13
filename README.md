@@ -1,11 +1,11 @@
 # LinkDB
 
-LinkDB is a Flask-based API that interfaces with ScyllaDB to allow users to dynamically create keyspaces, tables, and manage data.
+LinkDB is a Flask-based API that interfaces with ScyllaDB, allowing users to dynamically create keyspaces, tables, and manage data.
 
 ## Features
 
 - Generate an API key for authentication.
-- Create keyspaces with specified replication factors.
+- Create keyspaces automatically during API key generation with specified replication factors.
 - List tables in a given keyspace.
 - Insert, update, query, and delete data from a specific table.
 - Basic API key authentication for enhanced security.
@@ -14,7 +14,7 @@ LinkDB is a Flask-based API that interfaces with ScyllaDB to allow users to dyna
 
 - Python 3.x
 - ScyllaDB
-- Flask and Flask-RESTful
+- Flask, Flask-RESTful, Flask-Limiter
 - Cassandra driver for Python
 
 ## Setup
@@ -52,11 +52,11 @@ To test the API endpoints, you can use the provided test script:
 
 ## API Endpoints
 
+- **GET** `/`: Welcome message.
 - **POST** `/generate_api_key`: Generate a new API key for authentication.
-- **POST** `/create_keyspace`: Create a new keyspace.
-- **POST** `/create_table/<keyspace_name>`: Create a new table within a keyspace.
+- **POST** `/create_table/<keyspace_name>`: Create a new table within a keyspace. The body should contain 'table_name' and 'columns' (a dictionary of column names and their types).
 - **GET** `/list_tables/<keyspace_name>`: List all tables in a keyspace.
 - **POST** `/insert_data/<keyspace_name>/<table_name>`: Insert data into a table.
-- **PUT** `/update_data/<keyspace_name>/<table_name>`: Update data in a table.
-- **GET** `/query_data/<keyspace_name>/<table_name>`: Fetch all rows from a table.
-- **DELETE** `/delete_data/<keyspace_name>/<table_name>`: Delete data from a table based on an ID.
+- **PUT** `/update_data/<keyspace_name>/<table_name>`: Update data in a table. The body should contain the data to update and the 'id' of the row to be updated.
+- **GET** `/query_data/<keyspace_name>/<table_name>`: Fetch data from a table. The results can be limited using the 'limit' query parameter.
+- **DELETE** `/delete_data/<keyspace_name>/<table_name>`: Delete data from a table based on an ID provided in the request body.
