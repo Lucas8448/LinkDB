@@ -27,31 +27,42 @@ session = cluster.connect()
 
 KEYSPACE_FOR_API_KEYS = "api_keys"
 session.execute(
-    f"CREATE KEYSPACE IF NOT EXISTS {KEYSPACE_FOR_API_KEYS} WITH replication = {{'class':'SimpleStrategy', 'replication_factor':3}}")
+    f"CREATE KEYSPACE IF NOT EXISTS {KEYSPACE_FOR_API_KEYS} WITH replication = {{'class':'SimpleStrategy', 'replication_factor':1}}")
 session.set_keyspace(KEYSPACE_FOR_API_KEYS)
 CREATE_API_KEYS_TABLE_QUERY = """
 CREATE TABLE IF NOT EXISTS api_keys (
-    key TEXT PRIMARY KEY
+    api_key TEXT PRIMARY KEY,
+    client_keyspace TEXT
 )
 """
 session.execute(CREATE_API_KEYS_TABLE_QUERY)
 
 
-
-def authenticate(api_key):
-    query = f"SELECT key FROM {KEYSPACE_FOR_API_KEYS}.api_keys WHERE key = ?"
+def authenticate(api_key, keyspace_name):
+    query = f"SELECT api_key, client_keyspace FROM {KEYSPACE_FOR_API_KEYS}.api_keys WHERE api_key = ?"
     prepared_statement = session.prepare(query)
     bound_statement = prepared_statement.bind((api_key,))
     rows = session.execute(bound_statement)
-    return bool(rows.one())
+    result = rows.one()
+    if result and result.client_keyspace == keyspace_name:
+        return True
+    return False
 
 
 class GenerateAPIKey(Resource):
     def post(self):
         new_key = generate_api_key()
-        insert_query = f"INSERT INTO {KEYSPACE_FOR_API_KEYS}.api_keys (key) VALUES ('{new_key}')"
+        # Create a unique keyspace name for the user
+        new_keyspace = "ks_" + new_key.split('-')[0]
+        insert_query = f"INSERT INTO {KEYSPACE_FOR_API_KEYS}.api_keys (api_key, client_keyspace) VALUES ('{new_key}', '{new_keyspace}')"
         session.execute(insert_query)
-        return {'api_key': new_key}
+        # Create the keyspace as well
+        create_keyspace_query = f"""
+        CREATE KEYSPACE IF NOT EXISTS {new_keyspace} 
+        WITH replication = {{'class':'SimpleStrategy', 'replication_factor':1}}
+        """
+        session.execute(create_keyspace_query)
+        return {'api_key': new_key, 'keyspace': new_keyspace}
 
 limiter = Limiter(
   app,
@@ -73,30 +84,10 @@ class Home(Resource):
   def get(self):
     return {'message': 'Welcome to LinkDB.'}
 
-
-class CreateKeyspace(Resource):
-  def post(self):
-    api_key = request.headers.get('API-Key')
-    if not authenticate(api_key):
-      return {'message': 'Unauthorized'}, 401
-
-    data = request.get_json()
-    keyspace_name = data['keyspace_name']
-    replication_factor = 1
-
-    create_keyspace_query = f"""
-      CREATE KEYSPACE IF NOT EXISTS {keyspace_name} 
-      WITH replication = {{'class':'SimpleStrategy', 'replication_factor':{replication_factor}}}
-      """
-
-
-    session.execute(create_keyspace_query)
-    return {'message': f'Keyspace {keyspace_name} created successfully.'}
-
 class CreateTable(Resource):
   def post(self, keyspace_name):
     api_key = request.headers.get('API-Key')
-    if not authenticate(api_key):
+    if not authenticate(api_key, keyspace_name):
       return {'status': 'error', 'message': 'Unauthorized'}, 401
 
     data = request.get_json()
@@ -114,7 +105,7 @@ class CreateTable(Resource):
 class ListTables(Resource):
   def get(self, keyspace_name):
     api_key = request.headers.get('API-Key')
-    if not authenticate(api_key):
+    if not authenticate(api_key, keyspace_name):
       return {'message': 'Unauthorized'}, 401
 
     list_tables_query = f"SELECT table_name FROM system_schema.tables WHERE keyspace_name='{keyspace_name}'"
@@ -125,7 +116,7 @@ class ListTables(Resource):
 class InsertData(Resource):
   def post(self, keyspace_name, table_name):
     api_key = request.headers.get('API-Key')
-    if not authenticate(api_key):
+    if not authenticate(api_key, keyspace_name):
       return {'message': 'Unauthorized'}, 401
 
     data = request.get_json()
@@ -143,7 +134,7 @@ class InsertData(Resource):
 class QueryData(Resource):
   def get(self, keyspace_name, table_name):
     api_key = request.headers.get('API-Key')
-    if not authenticate(api_key):
+    if not authenticate(api_key, keyspace_name):
       return {'status': 'error', 'message': 'Unauthorized'}, 401
 
     limit = int(request.args.get('limit', 50))
@@ -159,7 +150,7 @@ class QueryData(Resource):
 class DeleteData(Resource):
     def delete(self, keyspace_name, table_name):
         api_key = request.headers.get('API-Key')
-        if not authenticate(api_key):
+        if not authenticate(api_key, keyspace_name):
             return {'message': 'Unauthorized'}, 401
 
         data = request.get_json()
@@ -174,7 +165,7 @@ class DeleteData(Resource):
 class UpdateData(Resource):
     def put(self, keyspace_name, table_name):
         api_key = request.headers.get('API-Key')
-        if not authenticate(api_key):
+        if not authenticate(api_key, keyspace_name):
             return {'message': 'Unauthorized'}, 401
 
         data = request.get_json()
@@ -192,7 +183,6 @@ class UpdateData(Resource):
 api.add_resource(Home, '/')
 api.add_resource(GenerateAPIKey, '/generate_api_key')
 api.add_resource(CreateTable, '/create_table/<string:keyspace_name>')
-api.add_resource(CreateKeyspace, '/create_keyspace')
 api.add_resource(ListTables, '/list_tables/<string:keyspace_name>')
 api.add_resource(
   InsertData, '/insert_data/<string:keyspace_name>/<string:table_name>')
