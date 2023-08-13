@@ -1,3 +1,5 @@
 Flask
-Flask-RESTful
+flask-restful
 cassandra-driver
+flask-limiter
+Flask-CORS
