@@ -2,8 +2,7 @@ from flask import Flask, request, jsonify
 from flask_restful import Api, Resource
 from cassandra.cluster import Cluster
 from cassandra.auth import PlainTextAuthProvider
-from flask_limiter import Limiter
-from flask_limiter.util import get_remote_address
+import datetime
 from flask_cors import CORS
 import uuid
 
@@ -36,10 +35,24 @@ CREATE TABLE IF NOT EXISTS api_keys (
 )
 """
 session.execute(CREATE_API_KEYS_TABLE_QUERY)
+USAGE_TABLE_QUERY = """
+CREATE TABLE IF NOT EXISTS api_key_usage (
+    api_key TEXT,
+    timestamp TIMESTAMP,
+    endpoint TEXT,
+    PRIMARY KEY (api_key, timestamp)
+)
+"""
+session.execute(USAGE_TABLE_QUERY)
 
 
-def authenticate(api_key, keyspace_name):
-    query = f"SELECT api_key, client_keyspace FROM {KEYSPACE_FOR_API_KEYS}.api_keys WHERE api_key = ?"
+def get_keyspace_from_api_key(api_key):
+    return "ks_" + api_key.replace("-", "_")
+
+
+def authenticate(api_key):
+    keyspace_name = get_keyspace_from_api_key(api_key)
+    query = f"SELECT api_key, client_keyspace FROM api_keys WHERE api_key = ?"
     prepared_statement = session.prepare(query)
     bound_statement = prepared_statement.bind((api_key,))
     rows = session.execute(bound_statement)
@@ -49,11 +62,34 @@ def authenticate(api_key, keyspace_name):
     return False
 
 
+@app.before_request
+def log_request():
+    if '/generate_api_key' in request.path:
+        return
+
+    api_key = request.headers.get('API-Key')
+    if not api_key:
+        return {'status': 'error', 'message': 'API-Key header is missing'}, 401
+
+    timestamp = datetime.datetime.utcnow().strftime(
+        '%Y-%m-%d %H:%M:%S.%f')[:-3]
+    endpoint = request.endpoint
+
+    insert_usage_query = f"INSERT INTO api_key_usage (api_key, timestamp, endpoint) VALUES ('{api_key}', '{timestamp}', '{endpoint}')"
+    session.execute(insert_usage_query)
+
+
+def calculate_costs(api_key):
+    count_query = f"SELECT COUNT(*) FROM api_key_usage WHERE api_key = '{api_key}'"
+    rows = session.execute(count_query)
+    count = rows.one()[0]
+    return count * 0.001  # 0.001 USD per request
+
 class GenerateAPIKey(Resource):
     def post(self):
         new_key = generate_api_key()
         # Create a unique keyspace name for the user
-        new_keyspace = "ks_" + new_key.split('-')[0]
+        new_keyspace = get_keyspace_from_api_key(new_key)
         insert_query = f"INSERT INTO {KEYSPACE_FOR_API_KEYS}.api_keys (api_key, client_keyspace) VALUES ('{new_key}', '{new_keyspace}')"
         session.execute(insert_query)
         # Create the keyspace as well
@@ -62,14 +98,19 @@ class GenerateAPIKey(Resource):
         WITH replication = {{'class':'SimpleStrategy', 'replication_factor':1}}
         """
         session.execute(create_keyspace_query)
-        return {'api_key': new_key, 'keyspace': new_keyspace}
+        return {'api_key': new_key}
 
-limiter = Limiter(
-  app,
-  key_func=get_remote_address,
-  default_limits=["400 per day", "50 per hour"]
-)
+class GetUsageCosts(Resource):
+    def get(self):
+        api_key = request.headers.get('API-Key')
+        if not api_key:
+            return {'status': 'error', 'message': 'API-Key header is missing'}, 401
 
+        if not authenticate(api_key):
+            return {'status': 'error', 'message': 'Unauthorized'}, 401
+
+        cost = calculate_costs(api_key)
+        return {'status': 'success', 'api_key': api_key, 'cost': cost}
 
 def validate_create_table_data(data):
   if 'table_name' not in data or 'columns' not in data:
@@ -84,11 +125,13 @@ class Home(Resource):
   def get(self):
     return {'message': 'Welcome to LinkDB.'}
 
+
 class CreateTable(Resource):
-  def post(self, keyspace_name):
+  def post(self):
     api_key = request.headers.get('API-Key')
-    if not authenticate(api_key, keyspace_name):
-      return {'status': 'error', 'message': 'Unauthorized'}, 401
+    if not authenticate(api_key):
+        return {'status': 'error', 'message': 'Unauthorized'}, 401
+    keyspace_name = get_keyspace_from_api_key(api_key)
 
     data = request.get_json()
     is_valid, validation_message = validate_create_table_data(data)
@@ -103,9 +146,10 @@ class CreateTable(Resource):
     return {'status': 'success', 'message': f'Table {table_name} created successfully in keyspace {keyspace_name}.'}
 
 class ListTables(Resource):
-  def get(self, keyspace_name):
+  def get(self):
     api_key = request.headers.get('API-Key')
-    if not authenticate(api_key, keyspace_name):
+    keyspace_name = get_keyspace_from_api_key(api_key)
+    if not authenticate(api_key):
       return {'message': 'Unauthorized'}, 401
 
     list_tables_query = f"SELECT table_name FROM system_schema.tables WHERE keyspace_name='{keyspace_name}'"
@@ -114,9 +158,10 @@ class ListTables(Resource):
 
 
 class InsertData(Resource):
-  def post(self, keyspace_name, table_name):
+  def post(self, table_name):
     api_key = request.headers.get('API-Key')
-    if not authenticate(api_key, keyspace_name):
+    keyspace_name = get_keyspace_from_api_key(api_key)
+    if not authenticate(api_key):
       return {'message': 'Unauthorized'}, 401
 
     data = request.get_json()
@@ -132,9 +177,10 @@ class InsertData(Resource):
 
 
 class QueryData(Resource):
-  def get(self, keyspace_name, table_name):
+  def get(self, table_name):
     api_key = request.headers.get('API-Key')
-    if not authenticate(api_key, keyspace_name):
+    keyspace_name = get_keyspace_from_api_key(api_key)
+    if not authenticate(api_key):
       return {'status': 'error', 'message': 'Unauthorized'}, 401
 
     limit = int(request.args.get('limit', 50))
@@ -148,9 +194,10 @@ class QueryData(Resource):
 
 
 class DeleteData(Resource):
-    def delete(self, keyspace_name, table_name):
+    def delete(self, table_name):
         api_key = request.headers.get('API-Key')
-        if not authenticate(api_key, keyspace_name):
+        keyspace_name = get_keyspace_from_api_key(api_key)
+        if not authenticate(api_key):
             return {'message': 'Unauthorized'}, 401
 
         data = request.get_json()
@@ -163,9 +210,10 @@ class DeleteData(Resource):
 
 
 class UpdateData(Resource):
-    def put(self, keyspace_name, table_name):
+    def put(self, table_name):
         api_key = request.headers.get('API-Key')
-        if not authenticate(api_key, keyspace_name):
+        keyspace_name = get_keyspace_from_api_key(api_key)
+        if not authenticate(api_key):
             return {'message': 'Unauthorized'}, 401
 
         data = request.get_json()
@@ -182,16 +230,17 @@ class UpdateData(Resource):
 
 api.add_resource(Home, '/')
 api.add_resource(GenerateAPIKey, '/generate_api_key')
-api.add_resource(CreateTable, '/create_table/<string:keyspace_name>')
-api.add_resource(ListTables, '/list_tables/<string:keyspace_name>')
+api.add_resource(GetUsageCosts, '/get_usage_costs')
+api.add_resource(CreateTable, '/create_table')
+api.add_resource(ListTables, '/list_tables')
 api.add_resource(
-  InsertData, '/insert_data/<string:keyspace_name>/<string:table_name>')
+  InsertData, '/insert_data/<string:table_name>')
 api.add_resource(
-  QueryData, '/query_data/<string:keyspace_name>/<string:table_name>')
+  QueryData, '/query_data/<string:table_name>')
 api.add_resource(
-    DeleteData, '/delete_data/<string:keyspace_name>/<string:table_name>')
+    DeleteData, '/delete_data/<string:table_name>')
 api.add_resource(
-    UpdateData, '/update_data/<string:keyspace_name>/<string:table_name>')
+    UpdateData, '/update_data/<string:table_name>')
 
 if __name__ == '__main__':
   app.run()
