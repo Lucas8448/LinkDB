@@ -83,6 +83,7 @@ def main():
         test_insert_data(keyspace)
         test_query_data(keyspace)
         test_update_data(keyspace)
+        test_query_data(keyspace)
         test_delete_data(keyspace)
 
 
