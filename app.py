@@ -3,7 +3,6 @@ from flask_restful import Api, Resource
 from cassandra.cluster import Cluster
 from cassandra.auth import PlainTextAuthProvider
 import datetime
-from flask_cors import CORS
 import uuid
 
 
@@ -12,7 +11,6 @@ def generate_api_key():
 
 
 app = Flask(__name__)
-CORS(app, resources={r"/*": {"origins": "http://localhost:5500"}})
 api = Api(app)
 
 # Connection details
