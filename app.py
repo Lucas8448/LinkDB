@@ -1,14 +1,17 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request
+from gevent.pywsgi import WSGIServer
+from gevent import monkey
+
+monkey.patch_all()
 from flask_restful import Api, Resource
 from cassandra.cluster import Cluster
 from cassandra.auth import PlainTextAuthProvider
 import datetime
 import uuid
-
+import time
 
 def generate_api_key():
     return str(uuid.uuid4())
-
 
 app = Flask(__name__)
 api = Api(app)
@@ -60,6 +63,17 @@ def authenticate(api_key):
     return False
 
 
+def measure_time(func):
+    def wrapper(*args, **kwargs):
+        start_time = time.time()
+        result = func(*args, **kwargs)
+        end_time = time.time()
+        elapsed_time = end_time - start_time
+        print(f"{func.__name__} took {elapsed_time:.6f} seconds to complete.")
+        return result
+    return wrapper 
+
+@measure_time 
 @app.before_request
 def log_request():
     if '/generate_api_key' in request.path:
@@ -81,12 +95,12 @@ def calculate_costs(api_key):
     count_query = f"SELECT COUNT(*) FROM api_key_usage WHERE api_key = '{api_key}'"
     rows = session.execute(count_query)
     count = rows.one()[0]
-    return count * 0.001  # 0.001 USD per request
+    return count * 0.001
 
 class GenerateAPIKey(Resource):
+    @measure_time
     def post(self):
         new_key = generate_api_key()
-        # Create a unique keyspace name for the user
         new_keyspace = get_keyspace_from_api_key(new_key)
         insert_query = f"INSERT INTO {KEYSPACE_FOR_API_KEYS}.api_keys (api_key, client_keyspace) VALUES ('{new_key}', '{new_keyspace}')"
         session.execute(insert_query)
@@ -99,6 +113,7 @@ class GenerateAPIKey(Resource):
         return {'api_key': new_key}
 
 class GetUsageCosts(Resource):
+    @measure_time
     def get(self):
         api_key = request.headers.get('API-Key')
         if not api_key:
@@ -120,11 +135,13 @@ def validate_create_table_data(data):
   return True, ""
 
 class Home(Resource):
+  @measure_time
   def get(self):
     return {'message': 'Welcome to LinkDB.'}
 
 
 class CreateTable(Resource):
+  @measure_time
   def post(self):
     api_key = request.headers.get('API-Key')
     if not authenticate(api_key):
@@ -144,6 +161,7 @@ class CreateTable(Resource):
     return {'status': 'success', 'message': f'Table {table_name} created successfully in keyspace {keyspace_name}.'}
 
 class ListTables(Resource):
+  @measure_time
   def get(self):
     api_key = request.headers.get('API-Key')
     keyspace_name = get_keyspace_from_api_key(api_key)
@@ -156,6 +174,7 @@ class ListTables(Resource):
 
 
 class InsertData(Resource):
+  @measure_time
   def post(self, table_name):
     api_key = request.headers.get('API-Key')
     keyspace_name = get_keyspace_from_api_key(api_key)
@@ -175,6 +194,7 @@ class InsertData(Resource):
 
 
 class QueryData(Resource):
+  @measure_time
   def get(self, table_name):
     api_key = request.headers.get('API-Key')
     keyspace_name = get_keyspace_from_api_key(api_key)
@@ -192,6 +212,7 @@ class QueryData(Resource):
 
 
 class DeleteData(Resource):
+    @measure_time
     def delete(self, table_name):
         api_key = request.headers.get('API-Key')
         keyspace_name = get_keyspace_from_api_key(api_key)
@@ -208,6 +229,7 @@ class DeleteData(Resource):
 
 
 class UpdateData(Resource):
+    @measure_time
     def put(self, table_name):
         api_key = request.headers.get('API-Key')
         keyspace_name = get_keyspace_from_api_key(api_key)
@@ -225,7 +247,6 @@ class UpdateData(Resource):
         session.execute(update_data_query)
         return {'message': 'Data updated successfully.'}
 
-
 api.add_resource(Home, '/')
 api.add_resource(GenerateAPIKey, '/generate_api_key')
 api.add_resource(GetUsageCosts, '/get_usage_costs')
@@ -240,5 +261,11 @@ api.add_resource(
 api.add_resource(
     UpdateData, '/update_data/<string:table_name>')
 
+
+def main():
+    http = WSGIServer(('', 5000), app.wsgi_app)
+    http.serve_forever()
+
+
 if __name__ == '__main__':
-  app.run()
+    main()
