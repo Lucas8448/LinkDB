@@ -279,6 +279,46 @@ class UpdateData(Resource):
         session.execute(bound_statement)
         return {'message': 'Data updated successfully.'}
 
+
+class TableSchema(Resource):
+    def get(self, table_name):
+        api_key = request.headers.get('API-Key')
+        keyspace_name = get_keyspace_from_api_key(api_key)
+        if not authenticate(api_key):
+            return {'status': 'error', 'message': 'Unauthorized'}, 401
+
+        schema_query = "SELECT column_name, type FROM system_schema.columns WHERE keyspace_name=? AND table_name=?"
+        prepared_statement = session.prepare(schema_query)
+        bound_statement = prepared_statement.bind([keyspace_name, table_name])
+        rows = session.execute(bound_statement)
+        return {'columns': {row.column_name: row.type for row in rows}}
+
+class DataCount(Resource):
+    def get(self, table_name):
+        api_key = request.headers.get('API-Key')
+        keyspace_name = get_keyspace_from_api_key(api_key)
+        if not authenticate(api_key):
+            return {'status': 'error', 'message': 'Unauthorized'}, 401
+
+        count_query = f"SELECT COUNT(*) FROM {keyspace_name}.{table_name}"
+        prepared_statement = session.prepare(count_query)
+        bound_statement = prepared_statement.bind([])
+        count = session.execute(bound_statement).one()[0]
+        return {'count': count}
+
+class DataSum(Resource):
+    def get(self, table_name, column_name):
+        api_key = request.headers.get('API-Key')
+        keyspace_name = get_keyspace_from_api_key(api_key)
+        if not authenticate(api_key):
+            return {'status': 'error', 'message': 'Unauthorized'}, 401
+
+        sum_query = f"SELECT SUM(?) FROM {keyspace_name}.{table_name}"
+        prepared_statement = session.prepare(sum_query)
+        bound_statement = prepared_statement.bind([column_name])
+        total = session.execute(bound_statement).one()[0]
+        return {'total': total}
+
 # Routes
 api.add_resource(Home, '/')
 api.add_resource(GenerateAPIKey, '/generate_api_key')
@@ -289,6 +329,9 @@ api.add_resource(InsertData, '/insert_data/<string:table_name>')
 api.add_resource(QueryData, '/query_data/<string:table_name>')
 api.add_resource(DeleteData, '/delete_data/<string:table_name>')
 api.add_resource(UpdateData, '/update_data/<string:table_name>')
+api.add_resource(TableSchema, '/table_schema/<string:table_name>')
+api.add_resource(DataCount, '/data_count/<string:table_name>')
+api.add_resource(DataSum, '/data_sum/<string:table_name>/<string:column_name>')
 
 # Main function to start the server
 def main():
