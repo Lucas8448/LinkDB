@@ -62,18 +62,6 @@ def authenticate(api_key):
         return True
     return False
 
-
-def measure_time(func):
-    def wrapper(*args, **kwargs):
-        start_time = time.time()
-        result = func(*args, **kwargs)
-        end_time = time.time()
-        elapsed_time = end_time - start_time
-        print(f"{func.__name__} took {elapsed_time:.6f} seconds to complete.")
-        return result
-    return wrapper 
-
-@measure_time 
 @app.before_request
 def log_request():
     if '/generate_api_key' in request.path:
@@ -98,7 +86,6 @@ def calculate_costs(api_key):
     return count * 0.001
 
 class GenerateAPIKey(Resource):
-    @measure_time
     def post(self):
         new_key = generate_api_key()
         new_keyspace = get_keyspace_from_api_key(new_key)
@@ -113,7 +100,6 @@ class GenerateAPIKey(Resource):
         return {'api_key': new_key}
 
 class GetUsageCosts(Resource):
-    @measure_time
     def get(self):
         api_key = request.headers.get('API-Key')
         if not api_key:
@@ -135,13 +121,11 @@ def validate_create_table_data(data):
   return True, ""
 
 class Home(Resource):
-  @measure_time
   def get(self):
     return {'message': 'Welcome to LinkDB.'}
 
 
 class CreateTable(Resource):
-  @measure_time
   def post(self):
     api_key = request.headers.get('API-Key')
     if not authenticate(api_key):
@@ -161,7 +145,6 @@ class CreateTable(Resource):
     return {'status': 'success', 'message': f'Table {table_name} created successfully in keyspace {keyspace_name}.'}
 
 class ListTables(Resource):
-  @measure_time
   def get(self):
     api_key = request.headers.get('API-Key')
     keyspace_name = get_keyspace_from_api_key(api_key)
@@ -174,7 +157,6 @@ class ListTables(Resource):
 
 
 class InsertData(Resource):
-  @measure_time
   def post(self, table_name):
     api_key = request.headers.get('API-Key')
     keyspace_name = get_keyspace_from_api_key(api_key)
@@ -194,7 +176,6 @@ class InsertData(Resource):
 
 
 class QueryData(Resource):
-  @measure_time
   def get(self, table_name):
     api_key = request.headers.get('API-Key')
     keyspace_name = get_keyspace_from_api_key(api_key)
@@ -212,7 +193,6 @@ class QueryData(Resource):
 
 
 class DeleteData(Resource):
-    @measure_time
     def delete(self, table_name):
         api_key = request.headers.get('API-Key')
         keyspace_name = get_keyspace_from_api_key(api_key)
@@ -229,7 +209,6 @@ class DeleteData(Resource):
 
 
 class UpdateData(Resource):
-    @measure_time
     def put(self, table_name):
         api_key = request.headers.get('API-Key')
         keyspace_name = get_keyspace_from_api_key(api_key)
