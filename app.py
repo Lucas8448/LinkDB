@@ -1,41 +1,63 @@
-from flask import Flask, request
-from gevent.pywsgi import WSGIServer
+# Patch Gevent before importing anything else
 from gevent import monkey
-
 monkey.patch_all()
-from flask_restful import Api, Resource
-from cassandra.cluster import Cluster
-from cassandra.auth import PlainTextAuthProvider
-import datetime
+
+# Imports
 import uuid
-import time
+import datetime
+from cassandra.auth import PlainTextAuthProvider
+from cassandra.cluster import Cluster
+from gevent.pywsgi import WSGIServer
+from flask_restful import Api, Resource
+from flask import Flask, request
 
-def generate_api_key():
-    return str(uuid.uuid4())
+# Configuration
+SCYLLA_HOST = 'localhost'
+SCYLLA_PORT = 9042
+KEYSPACE_FOR_API_KEYS = "api_keys"
 
+# Create Flask app and API
 app = Flask(__name__)
 api = Api(app)
 
-# Connection details
-SCYLLA_HOST = 'localhost'
-SCYLLA_PORT = 9042
-
+# Cassandra connection setup
 auth_provider = PlainTextAuthProvider(
     username='cassandra', password='cassandra')
 cluster = Cluster([SCYLLA_HOST], port=SCYLLA_PORT, auth_provider=auth_provider)
 session = cluster.connect()
 
-KEYSPACE_FOR_API_KEYS = "api_keys"
-session.execute(
-    f"CREATE KEYSPACE IF NOT EXISTS {KEYSPACE_FOR_API_KEYS} WITH replication = {{'class':'SimpleStrategy', 'replication_factor':1}}")
+# Utility functions
+def generate_api_key():
+    return str(uuid.uuid4())
+
+
+def get_keyspace_from_api_key(api_key):
+    return "ks_" + api_key.replace("-", "_")
+
+
+def create_keyspace_if_not_exists(keyspace_name):
+    session.execute(
+        f"CREATE KEYSPACE IF NOT EXISTS {keyspace_name} "
+        f"WITH replication = {{'class':'SimpleStrategy', 'replication_factor':1}}"
+    )
+
+
+def create_table_if_not_exists(table_query):
+    session.execute(table_query)
+
+
+# Initialize Cassandra tables and keyspaces
+create_keyspace_if_not_exists(KEYSPACE_FOR_API_KEYS)
 session.set_keyspace(KEYSPACE_FOR_API_KEYS)
+
 CREATE_API_KEYS_TABLE_QUERY = """
 CREATE TABLE IF NOT EXISTS api_keys (
     api_key TEXT PRIMARY KEY,
     client_keyspace TEXT
 )
 """
-session.execute(CREATE_API_KEYS_TABLE_QUERY)
+create_table_if_not_exists(CREATE_API_KEYS_TABLE_QUERY)
+
 USAGE_TABLE_QUERY = """
 CREATE TABLE IF NOT EXISTS api_key_usage (
     api_key TEXT,
@@ -44,24 +66,9 @@ CREATE TABLE IF NOT EXISTS api_key_usage (
     PRIMARY KEY (api_key, timestamp)
 )
 """
-session.execute(USAGE_TABLE_QUERY)
+create_table_if_not_exists(USAGE_TABLE_QUERY)
 
-
-def get_keyspace_from_api_key(api_key):
-    return "ks_" + api_key.replace("-", "_")
-
-
-def authenticate(api_key):
-    keyspace_name = get_keyspace_from_api_key(api_key)
-    query = f"SELECT api_key, client_keyspace FROM api_keys WHERE api_key = ?"
-    prepared_statement = session.prepare(query)
-    bound_statement = prepared_statement.bind((api_key,))
-    rows = session.execute(bound_statement)
-    result = rows.one()
-    if result and result.client_keyspace == keyspace_name:
-        return True
-    return False
-
+# Middleware and auxiliary functions
 @app.before_request
 def log_request():
     if '/generate_api_key' in request.path:
@@ -79,12 +86,31 @@ def log_request():
     session.execute(insert_usage_query)
 
 
+def authenticate(api_key):
+    keyspace_name = get_keyspace_from_api_key(api_key)
+    query = f"SELECT api_key, client_keyspace FROM api_keys WHERE api_key = ?"
+    prepared_statement = session.prepare(query)
+    bound_statement = prepared_statement.bind((api_key,))
+    rows = session.execute(bound_statement)
+    result = rows.one()
+    return result and result.client_keyspace == keyspace_name
+
+
 def calculate_costs(api_key):
     count_query = f"SELECT COUNT(*) FROM api_key_usage WHERE api_key = '{api_key}'"
     rows = session.execute(count_query)
     count = rows.one()[0]
     return count * 0.001
 
+
+def validate_create_table_data(data):
+    if 'table_name' not in data or 'columns' not in data:
+        return False, "Both 'table_name' and 'columns' fields are required."
+    if not isinstance(data['columns'], dict):
+        return False, "'columns' should be a dictionary with column name and type as key-value pairs."
+    return True, ""
+
+# Flask-RESTful Resources
 class GenerateAPIKey(Resource):
     def post(self):
         new_key = generate_api_key()
@@ -99,6 +125,7 @@ class GenerateAPIKey(Resource):
         session.execute(create_keyspace_query)
         return {'api_key': new_key}
 
+
 class GetUsageCosts(Resource):
     def get(self):
         api_key = request.headers.get('API-Key')
@@ -111,6 +138,7 @@ class GetUsageCosts(Resource):
         cost = calculate_costs(api_key)
         return {'status': 'success', 'api_key': api_key, 'cost': cost}
 
+
 def validate_create_table_data(data):
   if 'table_name' not in data or 'columns' not in data:
     return False, "Both 'table_name' and 'columns' fields are required."
@@ -119,6 +147,7 @@ def validate_create_table_data(data):
     return False, "'columns' should be a dictionary with column name and type as key-value pairs."
 
   return True, ""
+
 
 class Home(Resource):
   def get(self):
@@ -144,6 +173,7 @@ class CreateTable(Resource):
     session.execute(create_table_query)
     return {'status': 'success', 'message': f'Table {table_name} created successfully in keyspace {keyspace_name}.'}
 
+
 class ListTables(Resource):
   def get(self):
     api_key = request.headers.get('API-Key')
@@ -168,7 +198,7 @@ class InsertData(Resource):
 
     # Differentiate between string and non-string values
     values = ", ".join([f"'{v}'" if isinstance(
-      v, str) else str(v) for v in data.values()])
+        v, str) else str(v) for v in data.values()])
 
     insert_data_query = f"INSERT INTO {keyspace_name}.{table_name} ({columns}) VALUES ({values})"
     session.execute(insert_data_query)
@@ -186,7 +216,6 @@ class QueryData(Resource):
 
     select_data_query = f"SELECT * FROM {keyspace_name}.{table_name} LIMIT {limit}"
     rows = session.execute(select_data_query)
-
 
     # Convert rows to dictionaries using _asdict()
     return {'status': 'success', 'data': [row._asdict() for row in rows]}
@@ -226,25 +255,22 @@ class UpdateData(Resource):
         session.execute(update_data_query)
         return {'message': 'Data updated successfully.'}
 
+# Routes
 api.add_resource(Home, '/')
 api.add_resource(GenerateAPIKey, '/generate_api_key')
 api.add_resource(GetUsageCosts, '/get_usage_costs')
 api.add_resource(CreateTable, '/create_table')
 api.add_resource(ListTables, '/list_tables')
-api.add_resource(
-  InsertData, '/insert_data/<string:table_name>')
-api.add_resource(
-  QueryData, '/query_data/<string:table_name>')
-api.add_resource(
-    DeleteData, '/delete_data/<string:table_name>')
-api.add_resource(
-    UpdateData, '/update_data/<string:table_name>')
+api.add_resource(InsertData, '/insert_data/<string:table_name>')
+api.add_resource(QueryData, '/query_data/<string:table_name>')
+api.add_resource(DeleteData, '/delete_data/<string:table_name>')
+api.add_resource(UpdateData, '/update_data/<string:table_name>')
 
-
+# Main function to start the server
 def main():
     http = WSGIServer(('', 5000), app.wsgi_app)
     http.serve_forever()
 
-
+# Run continuously
 if __name__ == '__main__':
     main()
