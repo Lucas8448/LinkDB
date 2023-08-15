@@ -82,26 +82,27 @@ def log_request():
         '%Y-%m-%d %H:%M:%S.%f')[:-3]
     endpoint = request.endpoint
 
-    insert_usage_query = f"INSERT INTO api_key_usage (api_key, timestamp, endpoint) VALUES ('{api_key}', '{timestamp}', '{endpoint}')"
-    session.execute(insert_usage_query)
-
+    insert_usage_query = "INSERT INTO api_key_usage (api_key, timestamp, endpoint) VALUES (?, ?, ?)"
+    prepared_statement = session.prepare(insert_usage_query)
+    bound_statement = prepared_statement.bind((api_key, timestamp, endpoint))
+    session.execute(bound_statement)
 
 def authenticate(api_key):
     keyspace_name = get_keyspace_from_api_key(api_key)
-    query = f"SELECT api_key, client_keyspace FROM api_keys WHERE api_key = ?"
+    query = "SELECT api_key, client_keyspace FROM api_keys WHERE api_key = ?"
     prepared_statement = session.prepare(query)
     bound_statement = prepared_statement.bind((api_key,))
     rows = session.execute(bound_statement)
     result = rows.one()
     return result and result.client_keyspace == keyspace_name
 
-
 def calculate_costs(api_key):
-    count_query = f"SELECT COUNT(*) FROM api_key_usage WHERE api_key = '{api_key}'"
-    rows = session.execute(count_query)
+    count_query = "SELECT COUNT(*) FROM api_key_usage WHERE api_key = ?"
+    prepared_statement = session.prepare(count_query)
+    bound_statement = prepared_statement.bind((api_key,))
+    rows = session.execute(bound_statement)
     count = rows.one()[0]
     return count * 0.001
-
 
 def validate_create_table_data(data):
     if 'table_name' not in data or 'columns' not in data:
@@ -155,24 +156,25 @@ class Home(Resource):
 
 
 class CreateTable(Resource):
-  def post(self):
-    api_key = request.headers.get('API-Key')
-    if not authenticate(api_key):
-        return {'status': 'error', 'message': 'Unauthorized'}, 401
-    keyspace_name = get_keyspace_from_api_key(api_key)
+    def post(self):
+        api_key = request.headers.get('API-Key')
+        if not authenticate(api_key):
+            return {'status': 'error', 'message': 'Unauthorized'}, 401
+        keyspace_name = get_keyspace_from_api_key(api_key)
 
-    data = request.get_json()
-    is_valid, validation_message = validate_create_table_data(data)
-    if not is_valid:
-      return {'status': 'error', 'message': validation_message}, 400
+        data = request.get_json()
+        is_valid, validation_message = validate_create_table_data(data)
+        if not is_valid:
+            return {'status': 'error', 'message': validation_message}, 400
 
-    table_name = data['table_name']
-    columns = ", ".join([f"{k} {v}" for k, v in data['columns'].items()])
+        table_name = data['table_name']
+        columns = ", ".join([f"{k} {v}" for k, v in data['columns'].items()])
 
-    create_table_query = f"CREATE TABLE IF NOT EXISTS {keyspace_name}.{table_name} ({columns})"
-    session.execute(create_table_query)
-    return {'status': 'success', 'message': f'Table {table_name} created successfully in keyspace {keyspace_name}.'}
-
+        create_table_query = f"CREATE TABLE IF NOT EXISTS {keyspace_name}.{table_name} ({columns})"
+        prepared_statement = session.prepare(create_table_query)
+        bound_statement = prepared_statement.bind()
+        session.execute(bound_statement)
+        return {'status': 'success', 'message': f'Table {table_name} created successfully in keyspace {keyspace_name}.'}
 
 class ListTables(Resource):
   def get(self):
@@ -187,39 +189,37 @@ class ListTables(Resource):
 
 
 class InsertData(Resource):
-  def post(self, table_name):
-    api_key = request.headers.get('API-Key')
-    keyspace_name = get_keyspace_from_api_key(api_key)
-    if not authenticate(api_key):
-      return {'message': 'Unauthorized'}, 401
+    def post(self, table_name):
+        api_key = request.headers.get('API-Key')
+        keyspace_name = get_keyspace_from_api_key(api_key)
+        if not authenticate(api_key):
+            return {'message': 'Unauthorized'}, 401
 
-    data = request.get_json()
-    columns = ", ".join(data.keys())
+        data = request.get_json()
+        columns = ", ".join(data.keys())
+        values_placeholder = ", ".join(["?" for _ in data.values()])
 
-    # Differentiate between string and non-string values
-    values = ", ".join([f"'{v}'" if isinstance(
-        v, str) else str(v) for v in data.values()])
-
-    insert_data_query = f"INSERT INTO {keyspace_name}.{table_name} ({columns}) VALUES ({values})"
-    session.execute(insert_data_query)
-    return {'message': 'Data inserted successfully.'}
-
+        insert_data_query = f"INSERT INTO {keyspace_name}.{table_name} ({columns}) VALUES ({values_placeholder})"
+        prepared_statement = session.prepare(insert_data_query)
+        bound_statement = prepared_statement.bind(data.values())
+        session.execute(bound_statement)
+        return {'message': 'Data inserted successfully.'}
 
 class QueryData(Resource):
-  def get(self, table_name):
-    api_key = request.headers.get('API-Key')
-    keyspace_name = get_keyspace_from_api_key(api_key)
-    if not authenticate(api_key):
-      return {'status': 'error', 'message': 'Unauthorized'}, 401
+    def get(self, table_name):
+        api_key = request.headers.get('API-Key')
+        keyspace_name = get_keyspace_from_api_key(api_key)
+        if not authenticate(api_key):
+            return {'status': 'error', 'message': 'Unauthorized'}, 401
 
-    limit = int(request.args.get('limit', 50))
+        limit = int(request.args.get('limit', 50))
 
-    select_data_query = f"SELECT * FROM {keyspace_name}.{table_name} LIMIT {limit}"
-    rows = session.execute(select_data_query)
+        select_data_query = f"SELECT * FROM {keyspace_name}.{table_name} LIMIT ?"
+        prepared_statement = session.prepare(select_data_query)
+        bound_statement = prepared_statement.bind((limit,))
+        rows = session.execute(bound_statement)
 
-    # Convert rows to dictionaries using _asdict()
-    return {'status': 'success', 'data': [row._asdict() for row in rows]}
-
+        return {'status': 'success', 'data': [row._asdict() for row in rows]}
 
 class DeleteData(Resource):
     def delete(self, table_name):
@@ -232,8 +232,10 @@ class DeleteData(Resource):
         if "id" not in data:
             return {'message': 'ID is required for deletion.'}, 400
 
-        delete_data_query = f"DELETE FROM {keyspace_name}.{table_name} WHERE id={data['id']}"
-        session.execute(delete_data_query)
+        delete_data_query = f"DELETE FROM {keyspace_name}.{table_name} WHERE id = ?"
+        prepared_statement = session.prepare(delete_data_query)
+        bound_statement = prepared_statement.bind((data["id"],))
+        session.execute(bound_statement)
         return {'message': 'Data deleted successfully.'}
 
 
@@ -248,11 +250,13 @@ class UpdateData(Resource):
         if "id" not in data:
             return {'message': 'ID is required for update.'}, 400
 
-        set_clause = ", ".join([f"{k}='{v}'" if isinstance(
-            v, str) else f"{k}={v}" for k, v in data.items() if k != "id"])
+        set_clause = ", ".join([f"{k} = ?" for k in data.keys() if k != "id"])
+        values = [v if not isinstance(v, str) else v for v in data.values()]
 
-        update_data_query = f"UPDATE {keyspace_name}.{table_name} SET {set_clause} WHERE id={data['id']}"
-        session.execute(update_data_query)
+        update_data_query = f"UPDATE {keyspace_name}.{table_name} SET {set_clause} WHERE id = ?"
+        prepared_statement = session.prepare(update_data_query)
+        bound_statement = prepared_statement.bind(values + [data["id"]])
+        session.execute(bound_statement)
         return {'message': 'Data updated successfully.'}
 
 # Routes
