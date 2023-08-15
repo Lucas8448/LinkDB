@@ -205,6 +205,7 @@ class InsertData(Resource):
         session.execute(bound_statement)
         return {'message': 'Data inserted successfully.'}
 
+
 class QueryData(Resource):
     def get(self, table_name):
         api_key = request.headers.get('API-Key')
@@ -212,11 +213,28 @@ class QueryData(Resource):
         if not authenticate(api_key):
             return {'status': 'error', 'message': 'Unauthorized'}, 401
 
+        # Pagination
         limit = int(request.args.get('limit', 50))
+        offset = int(request.args.get('offset', 0))
 
-        select_data_query = f"SELECT * FROM {keyspace_name}.{table_name} LIMIT ?"
+        # Sorting
+        sort_by = request.args.get('sort_by')
+        order = request.args.get('order', 'asc').lower()
+        order_clause = f"ORDER BY {sort_by} {order}" if sort_by else ""
+
+        # Filtering
+        filters = []
+        values = []
+        for key, value in request.args.items():
+            if key not in ['limit', 'offset', 'sort_by', 'order']:
+                filters.append(f"{key} = ?")
+                values.append(value)
+        filter_clause = " AND ".join(filters)
+        where_clause = f"WHERE {filter_clause}" if filter_clause else ""
+
+        select_data_query = f"SELECT * FROM {keyspace_name}.{table_name} {where_clause} {order_clause} LIMIT ? OFFSET ?"
         prepared_statement = session.prepare(select_data_query)
-        bound_statement = prepared_statement.bind((limit,))
+        bound_statement = prepared_statement.bind(values + [limit, offset])
         rows = session.execute(bound_statement)
 
         return {'status': 'success', 'data': [row._asdict() for row in rows]}
