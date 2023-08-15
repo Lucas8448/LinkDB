@@ -220,7 +220,7 @@ class QueryData(Resource):
         # Sorting
         sort_by = request.args.get('sort_by')
         order = request.args.get('order', 'asc').lower()
-        order_clause = f"ORDER BY {sort_by} {order}" if sort_by else ""
+        order_clause = f"ORDER BY ? {order}" if sort_by else ""
 
         # Filtering
         filters = []
@@ -232,9 +232,11 @@ class QueryData(Resource):
         filter_clause = " AND ".join(filters)
         where_clause = f"WHERE {filter_clause}" if filter_clause else ""
 
+        query_values = values + [sort_by if sort_by else None, limit, offset]
+
         select_data_query = f"SELECT * FROM {keyspace_name}.{table_name} {where_clause} {order_clause} LIMIT ? OFFSET ?"
         prepared_statement = session.prepare(select_data_query)
-        bound_statement = prepared_statement.bind(values + [limit, offset])
+        bound_statement = prepared_statement.bind(query_values)
         rows = session.execute(bound_statement)
 
         return {'status': 'success', 'data': [row._asdict() for row in rows]}
