@@ -1,5 +1,0 @@
-Flask
-flask-restful
-cassandra-driver
-flask-limiter
-Flask-CORS
