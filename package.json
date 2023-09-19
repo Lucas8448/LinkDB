@@ -1,0 +1,8 @@
+{
+  "type": "module",
+  "dependencies": {
+    "bun": "^1.0.0",
+    "bunjs": "^1.5.1",
+    "uuid": "^9.0.0"
+  }
+}
