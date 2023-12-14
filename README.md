@@ -1,62 +1,91 @@
-# LinkDB
+LinkDB User Manual
+Introduction
 
-LinkDB is a Flask-based API that interfaces with ScyllaDB, allowing users to dynamically create keyspaces, tables, and manage data.
+Welcome to LinkDB, a Flask-based API designed to interface seamlessly with ScyllaDB. This manual provides comprehensive guidance on setting up and using LinkDB, ensuring you can leverage its full potential for dynamic database management.
+Version: 1.0
+Table of Contents
 
-## Features
+    Features
+    Prerequisites
+    Installation and Setup
+    Testing
+    API Endpoints
+    Troubleshooting and Support
 
-- Generate an API key for authentication.
-- Create keyspaces automatically during API key generation with specified replication factors.
-- List tables in a given keyspace.
-- Insert, update, query, and delete data from a specific table.
-- Basic API key authentication for enhanced security.
+<a name="features"></a>
+Features
 
-## Prerequisites
+LinkDB offers a range of functionalities:
 
-- Python 3.x
-- ScyllaDB
-- Flask, Flask-RESTful, Flask-Limiter
-- Cassandra driver for Python
+    API Key Generation: Secure access with generated API keys.
+    Dynamic Keyspace Creation: Automate keyspace creation with API key generation, including replication factors customization.
+    Table Management: List, insert, update, query, and delete data in tables within keyspaces.
+    Enhanced Security: Basic API key authentication for secure data management.
 
-## Setup
+<a name="prerequisites"></a>
+Prerequisites
 
-1. Clone the repository:
+Before installing LinkDB, ensure the following prerequisites are met:
 
-    ```bash
-    git clone <repository_url>
-    cd LinkDB
-    ```
+    Python 3.x: Required for running the Flask application.
+    ScyllaDB: The NoSQL database used by LinkDB.
+    Flask Packages: Flask, Flask-RESTful, Flask-Limiter for RESTful API construction.
+    Cassandra Driver: Python driver for ScyllaDB.
 
-2. Install the required packages:
+<a name="installation-and-setup"></a>
+Installation and Setup
 
-    ```bash
-    pip install -r requirements.txt
-    ```
+Follow these steps to get LinkDB up and running:
 
-3. Set up ScyllaDB using Docker or any preferred method.
+    Clone the Repository:
 
-4. Update the ScyllaDB connection details in `app.py` if necessary.
+    bash
 
-5. Run the Flask API:
+git clone <repository_url>
+cd LinkDB
 
-    ```bash
+Install Required Packages:
+
+bash
+
+pip install -r requirements.txt
+
+Set Up ScyllaDB: Use Docker or your preferred method for database setup.
+
+Configure ScyllaDB Connection: Modify connection details in app.py as needed.
+
+Launch Flask API:
+
+bash
+
     python app.py
-    ```
 
-## Testing
+<a name="testing"></a>
+Testing
 
-To test the API endpoints, you can use the provided test script:
+Test the API endpoints using the provided script:
 
-    ```bash
-    python test_api.py
-    ```
+bash
 
-## API Endpoints
+python test_api.py
 
-- **GET** `/`: Welcome message.
-- **POST** `/generate_api_key`: Generate a new API key for authentication.
-- **POST** `/create_table/<keyspace_name>`: Create a new table within a keyspace. The body should contain 'table_name' and 'columns' (a dictionary of column names and their types).
-- **GET** `/list_tables/<keyspace_name>`: List all tables in a keyspace.
-- **POST** `/insert_data/<keyspace_name>/<table_name>`: Insert data into a table.
-- **PUT** `/update_data/<keyspace_name>/<table_name>`: Update data in a table. The body should contain the data to update and the 'id' of the row to be updated.
-- **GET** `/query_data/<keyspace_name>/<table_name>`: Fetch data from a table. The results can be limited using the 'limit' query parameter.
-- **DELETE** `/delete_data/<keyspace_name>/<table_name>`: Delete data from a table based on an ID provided in the request body.
+<a name="api-endpoints"></a>
+API Endpoints
+
+    GET /: Welcome and service status.
+    POST /generate_api_key: API key generation.
+    POST /create_table/<keyspace_name>: Table creation within a keyspace.
+    GET /list_tables/<keyspace_name>: Listing tables in a keyspace.
+    POST /insert_data/<keyspace_name>/<table_name>: Data insertion.
+    PUT /update_data/<keyspace_name>/<table_name>: Data update.
+    GET /query_data/<keyspace_name>/<table_name>: Data querying.
+    DELETE /delete_data/<keyspace_name>/<table_name>: Data deletion.
+
+<a name="troubleshooting-and-support"></a>
+Troubleshooting and Support
+
+Encountering issues? Check these common problems and solutions:
+
+    API Key Issues: Ensure keys are correctly generated and stored.
+    Connection Errors: Verify ScyllaDB connection details in app.py.
+    Dependency Problems: Re-install packages using requirements.txt.
